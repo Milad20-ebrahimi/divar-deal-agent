@@ -1,4 +1,4 @@
-import axios from "axios";
+import axios, { AxiosError } from "axios";
 import * as cheerio from "cheerio";
 
 export interface TorobPricePoint {
@@ -14,6 +14,12 @@ export interface TorobPriceResult {
   prices: TorobPricePoint[];
   minPrice: number | null;
   medianPrice: number | null;
+  diagnostics: {
+    status: number;
+    contentType: string;
+    htmlLength: number;
+    attempts: number;
+  };
 }
 
 const faDigits = "۰۱۲۳۴۵۶۷۸۹";
@@ -40,24 +46,51 @@ function median(values: number[]): number | null {
   return sorted.length % 2 ? sorted[mid] : Math.round((sorted[mid - 1] + sorted[mid]) / 2);
 }
 
-export async function searchTorob(query: string): Promise<TorobPriceResult> {
-  const sourceUrl = `https://torob.com/search/?query=${encodeURIComponent(query)}`;
-  const response = await axios.get<string>(sourceUrl, {
-    timeout: 15_000,
-    responseType: "text",
-    headers: {
-      "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/154 Safari/537.36",
-      Accept: "text/html,application/xhtml+xml",
-      "Accept-Language": "fa-IR,fa;q=0.9,en;q=0.8",
-    },
-  });
+const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
-  const $ = cheerio.load(response.data);
+async function fetchPublicSearchPage(sourceUrl: string) {
+  let lastError: unknown;
+  const timeouts = [12_000, 25_000];
+
+  for (let index = 0; index < timeouts.length; index += 1) {
+    try {
+      const response = await axios.get<string>(sourceUrl, {
+        timeout: timeouts[index],
+        responseType: "text",
+        maxRedirects: 5,
+        validateStatus: (status) => status >= 200 && status < 400,
+        headers: {
+          "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/154.0.0.0 Safari/537.36",
+          Accept: "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+          "Accept-Language": "fa-IR,fa;q=0.9,en-US;q=0.7,en;q=0.6",
+          "Cache-Control": "no-cache",
+        },
+      });
+
+      return { response, attempts: index + 1 };
+    } catch (error) {
+      lastError = error;
+      if (index < timeouts.length - 1) await sleep(1_000);
+    }
+  }
+
+  const error = lastError as AxiosError;
+  const code = error?.code ?? "UNKNOWN";
+  const status = error?.response?.status;
+  throw new Error(`Torob request failed after ${timeouts.length} attempts (code=${code}${status ? `, status=${status}` : ""}): ${error?.message ?? String(lastError)}`);
+}
+
+export async function searchTorob(query: string): Promise<TorobPriceResult> {
+  const cleanQuery = query.trim();
+  if (!cleanQuery) throw new Error("Torob query is empty");
+
+  const sourceUrl = `https://torob.com/search/?query=${encodeURIComponent(cleanQuery)}`;
+  const { response, attempts } = await fetchPublicSearchPage(sourceUrl);
+  const html = String(response.data ?? "");
+  const $ = cheerio.load(html);
   const points: TorobPricePoint[] = [];
   const seen = new Set<string>();
 
-  // Torob can change its markup. This intentionally uses broad public-page parsing
-  // and fails safely rather than attempting to bypass access controls.
   $("a").each((_index, element) => {
     const node = $(element);
     const text = node.text().replace(/\s+/g, " ").trim();
@@ -79,7 +112,6 @@ export async function searchTorob(query: string): Promise<TorobPriceResult> {
     });
   });
 
-  // Remove obvious outliers before calculating a reference median.
   const rawPrices = points.map((point) => point.price).sort((a, b) => a - b);
   let usable = rawPrices;
   if (rawPrices.length >= 5) {
@@ -89,10 +121,16 @@ export async function searchTorob(query: string): Promise<TorobPriceResult> {
   }
 
   return {
-    query,
+    query: cleanQuery,
     sourceUrl,
     prices: points.slice(0, 50),
     minPrice: usable.length ? Math.min(...usable) : null,
     medianPrice: median(usable),
+    diagnostics: {
+      status: response.status,
+      contentType: String(response.headers["content-type"] ?? ""),
+      htmlLength: html.length,
+      attempts,
+    },
   };
 }
