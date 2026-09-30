@@ -14,6 +14,9 @@ export async function testDivarConnectivity(
 ): Promise<DivarConnectivityResult> {
   const url = `https://divar.ir/s/${encodeURIComponent(city)}`;
 
+  console.log("Connecting to Divar...");
+  console.log("URL:", url);
+
   try {
     const response = await axios.get<string>(url, {
       timeout: 15_000,
@@ -52,11 +55,13 @@ export async function testDivarConnectivity(
   }
 }
 
-if (import.meta.url === `file://${process.argv[1]?.replace(/\\/g, "/")}`) {
-  console.log("Connecting to Divar...");
-
-  testDivarConnectivity().then((result) => {
-    console.log(JSON.stringify(result, null, 2));
-    process.exit(result.ok ? 0 : 1);
-  });
+async function main() {
+  const result = await testDivarConnectivity();
+  console.log(JSON.stringify(result, null, 2));
+  process.exitCode = result.ok ? 0 : 1;
 }
+
+main().catch((error) => {
+  console.error("Unexpected error:", error);
+  process.exitCode = 1;
+});
