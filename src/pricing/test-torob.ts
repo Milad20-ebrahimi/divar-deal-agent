@@ -6,6 +6,7 @@ async function main() {
   console.log(`Searching Torob for: ${query}`);
   const result = await searchTorob(query);
   console.log(`Source: ${result.sourceUrl}`);
+  console.log("Diagnostics:", JSON.stringify(result.diagnostics));
   console.log(`Price points found: ${result.prices.length}`);
   console.log(`Min usable price: ${result.minPrice?.toLocaleString("en-US") ?? "N/A"} toman`);
   console.log(`Median usable price: ${result.medianPrice?.toLocaleString("en-US") ?? "N/A"} toman`);
@@ -13,6 +14,6 @@ async function main() {
 }
 
 main().catch((error: any) => {
-  console.error("Torob test failed:", error?.response?.status ?? "", error?.message ?? error);
+  console.error("Torob test failed:", error?.message ?? error);
   process.exitCode = 1;
 });
