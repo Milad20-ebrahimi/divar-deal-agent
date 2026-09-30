@@ -6,6 +6,7 @@
   "scripts": {
     "dev": "tsx src/index.ts",
     "test:divar": "tsx src/collectors/divar.ts",
+    "scan:divar": "tsx src/collectors/listings.ts",
     "build": "tsc -p tsconfig.json",
     "start": "node dist/index.js"
   },
