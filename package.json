@@ -10,6 +10,7 @@
     "scan:candidates": "tsx src/pipeline/scan-candidates.ts",
     "scan:notify": "tsx src/pipeline/scan-and-notify.ts",
     "test:torob": "tsx src/pricing/test-torob.ts",
+    "test:deal": "tsx src/pipeline/test-deal.ts",
     "telegram:chat-id": "tsx src/notifications/get-chat-id.ts",
     "test:telegram": "tsx src/notifications/test-telegram.ts",
     "build": "tsc -p tsconfig.json",
