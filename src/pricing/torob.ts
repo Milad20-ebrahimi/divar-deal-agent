@@ -28,15 +28,24 @@ const arDigits = "٠١٢٣٤٥٦٧٨٩";
 function normalizeDigits(input: string): string {
   return input
     .replace(/[۰-۹]/g, (d) => String(faDigits.indexOf(d)))
-    .replace(/[٠-٩]/g, (d) => String(arDigits.indexOf(d)));
+    .replace(/[٠-٩]/g, (d) => String(arDigits.indexOf(d)))
+    .replace(/٫/g, ".")
+    .replace(/٬/g, ",");
 }
 
 function parseToman(text: string): number | null {
-  const normalized = normalizeDigits(text).replace(/[٬,]/g, "");
-  const matches = normalized.match(/\d{3,}/g);
-  if (!matches?.length) return null;
-  const value = Number(matches[matches.length - 1]);
-  return Number.isFinite(value) && value > 0 ? value : null;
+  const normalized = normalizeDigits(text);
+
+  // Torob commonly renders prices as e.g. "۲٫۹۱۲٫۹۱۰ تومان".
+  // Dots/commas here are thousands separators, not decimals.
+  const tomanMatch = normalized.match(/([0-9][0-9.,\s]*)\s*تومان/);
+  if (!tomanMatch) return null;
+
+  const digits = tomanMatch[1].replace(/[^0-9]/g, "");
+  if (!digits) return null;
+
+  const value = Number(digits);
+  return Number.isSafeInteger(value) && value >= 1_000 ? value : null;
 }
 
 function median(values: number[]): number | null {
@@ -77,7 +86,7 @@ async function fetchPublicSearchPage(sourceUrl: string) {
   const error = lastError as AxiosError;
   const code = error?.code ?? "UNKNOWN";
   const status = error?.response?.status;
-  throw new Error(`Torob request failed after ${timeouts.length} attempts (code=${code}${status ? `, status=${status}` : ""}): ${error?.message ?? String(lastError)}`);
+  throw new Error(`Torob request failed after 2 attempts (code=${code}${status ? `, status=${status}` : ""}): ${error?.message ?? String(lastError)}`);
 }
 
 export async function searchTorob(query: string): Promise<TorobPriceResult> {
