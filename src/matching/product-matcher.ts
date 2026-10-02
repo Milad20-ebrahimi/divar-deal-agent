@@ -6,6 +6,8 @@ export interface ProductMatch extends TorobPricePoint {
   modelMatches: string[];
   isBundle: boolean;
   bundleReasons: string[];
+  isConditionMismatch: boolean;
+  conditionReasons: string[];
 }
 
 const STOP_WORDS = new Set([
@@ -20,15 +22,17 @@ const BUNDLE_PATTERNS: Array<{ pattern: RegExp; reason: string }> = [
   { pattern: /پک\s+(?:کامل|همراه|ویژه)/i, reason: "پک/باندل" },
 ];
 
+const CONDITION_PATTERNS: Array<{ pattern: RegExp; reason: string }> = [
+  { pattern: /های\s*کپی|هایکپی|high\s*copy/i, reason: "های‌کپی/غیراصل" },
+  { pattern: /فیک|تقلبی|غیراصل/i, reason: "غیراصل" },
+  { pattern: /کارکرده|دست\s*دوم|دستدوم/i, reason: "کارکرده" },
+  { pattern: /جعبه\s*باز|اوپن\s*باکس|open\s*box/i, reason: "جعبه‌باز" },
+  { pattern: /استوک|ریفربیش|refurb/i, reason: "استوک/ریفربیش" },
+];
+
 function normalize(value: string): string {
-  return value
-    .toLowerCase()
-    .replace(/[يى]/g, "ی")
-    .replace(/ك/g, "ک")
-    .replace(/[‌_\-\/]+/g, " ")
-    .replace(/[^\p{L}\p{N}.]+/gu, " ")
-    .replace(/\s+/g, " ")
-    .trim();
+  return value.toLowerCase().replace(/[يى]/g, "ی").replace(/ك/g, "ک")
+    .replace(/[‌_\-\/]+/g, " ").replace(/[^\p{L}\p{N}.]+/gu, " ").replace(/\s+/g, " ").trim();
 }
 
 function tokens(value: string): string[] {
@@ -39,8 +43,8 @@ function modelTokens(value: string): string[] {
   return tokens(value).filter((t) => /[a-z]/i.test(t) && /\d/.test(t) && t.length >= 4);
 }
 
-function detectBundle(title: string): string[] {
-  return BUNDLE_PATTERNS.filter((item) => item.pattern.test(title)).map((item) => item.reason);
+function detect(title: string, patterns: Array<{ pattern: RegExp; reason: string }>): string[] {
+  return patterns.filter((item) => item.pattern.test(title)).map((item) => item.reason);
 }
 
 export function rankTorobMatches(query: string, points: TorobPricePoint[]): ProductMatch[] {
@@ -51,21 +55,20 @@ export function rankTorobMatches(query: string, points: TorobPricePoint[]): Prod
     const titleTokens = new Set(tokens(point.title));
     const matchedTokens = qTokens.filter((t) => titleTokens.has(t));
     const modelMatches = qModels.filter((t) => titleTokens.has(t));
-    const bundleReasons = detectBundle(point.title);
+    const bundleReasons = detect(point.title, BUNDLE_PATTERNS);
+    const conditionReasons = detect(point.title, CONDITION_PATTERNS);
 
     const coverage = qTokens.length ? matchedTokens.length / qTokens.length : 0;
     let score = Math.round(coverage * 70);
     if (modelMatches.length) score += 30;
     if (qModels.length && !modelMatches.length) score -= 35;
     if (bundleReasons.length) score -= 25;
+    if (conditionReasons.length) score -= 40;
 
     return {
-      ...point,
-      matchScore: Math.max(0, Math.min(100, score)),
-      matchedTokens,
-      modelMatches,
-      isBundle: bundleReasons.length > 0,
-      bundleReasons,
+      ...point, matchScore: Math.max(0, Math.min(100, score)), matchedTokens, modelMatches,
+      isBundle: bundleReasons.length > 0, bundleReasons,
+      isConditionMismatch: conditionReasons.length > 0, conditionReasons,
     };
   }).sort((a, b) => b.matchScore - a.matchScore || a.price - b.price);
 }
@@ -74,8 +77,8 @@ export function selectComparableMatches(query: string, points: TorobPricePoint[]
   const ranked = rankTorobMatches(query, points);
   if (!ranked.length) return [];
 
-  const nonBundles = ranked.filter((item) => !item.isBundle);
-  const pool = nonBundles.length ? nonBundles : ranked;
+  const clean = ranked.filter((item) => !item.isBundle && !item.isConditionMismatch);
+  const pool = clean.length ? clean : ranked.filter((item) => !item.isBundle);
   const qModels = modelTokens(query);
 
   if (qModels.length) {
